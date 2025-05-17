@@ -9,7 +9,12 @@
  * @url https://github.com/DFRobot/DFRobot_FreeTenIMU
  */
 
-#include "DFRobot_FreeTenIMU.h"
+#include <Arduino.h>
+#include <DFRobot_FreeTenIMU.h>
+#include <Wire.h>
+
+#define SDA_PIN 8
+#define SCL_PIN 9
 
 DFRobot_BMP280_IIC bmp(&Wire, DFRobot_BMP280_IIC::eSdoLow);
 DFRobot_ADXL345_I2C ADXL345(&Wire,0x53);
@@ -19,10 +24,15 @@ DFRobot_FreeTenIMU FreeTenIMU(&ADXL345,&gyro,&compass,&bmp);
 
 void setup() {
   Serial.begin(9600);
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+  delay(10);
+
   FreeTenIMU.begin();
 }
 
 void loop() {
+
   sEulAnalog_t   sEul;
   sEul = FreeTenIMU.getEul();
   Serial.print("pitch:");
