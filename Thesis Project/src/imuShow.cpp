@@ -8,13 +8,10 @@
  * @date  2022-3-4
  * @url https://github.com/DFRobot/DFRobot_FreeTenIMU
  */
-
-#include <Arduino.h>
 #include <DFRobot_FreeTenIMU.h>
 #include <Wire.h>
 
-#define SDA_PIN 8
-#define SCL_PIN 9
+
 
 DFRobot_BMP280_IIC bmp(&Wire, DFRobot_BMP280_IIC::eSdoLow);
 DFRobot_ADXL345_I2C ADXL345(&Wire,0x53);
@@ -24,15 +21,27 @@ DFRobot_FreeTenIMU FreeTenIMU(&ADXL345,&gyro,&compass,&bmp);
 
 void setup() {
   Serial.begin(9600);
-
-  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.begin(SDA, SCL);
+  Wire.setClock(400000);   // optional: 400 kHz fast mode
   delay(10);
 
-  FreeTenIMU.begin();
+  if (FreeTenIMU.begin() == false) {
+    Serial.println("IMU Initalisation Failed");
+  } else {
+    Serial.println("IMU Initalisation Succeeded");
+  }
+
+  //set the resolution to 12 bits (0-4095)
+  analogReadResolution(12);
 }
 
 void loop() {
-
+  // read the analog / millivolts value for pin 2:
+  int analogValue = analogRead(2);
+  
+  // print out the values you read:
+  Serial.printf("ADC analog value = %d\n", analogValue);
+  
   sEulAnalog_t   sEul;
   sEul = FreeTenIMU.getEul();
   Serial.print("pitch:");
