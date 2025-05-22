@@ -29,7 +29,7 @@ bool     debouncedState   = HIGH;  // the “real” button state after debounce
 unsigned long lastChangeTime = 0;  // when physical state last changed
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   FreeTenIMU.begin();
   pinMode(BUTTON_PIN, INPUT);
 }
@@ -100,5 +100,5 @@ void loop() {
   Serial.print(sEul.head,   3);      Serial.print(',');
   Serial.print(pressed?1:0);   Serial.print(',');
   Serial.println(heartActivity);
-  delay(20);
+  delay(10);
 }
