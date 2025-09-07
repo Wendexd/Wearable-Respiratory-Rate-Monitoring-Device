@@ -12,93 +12,84 @@
 #include <Arduino.h>
 #include <DFRobot_FreeTenIMU.h>
 
-const uint8_t BUTTON_PIN = A3;
-const uint8_t HEART_ACTIVITY_PIN = A0;
+// const uint8_t BUTTON_PIN = A3;
+const uint8_t HEART_ACTIVITY_PIN = GPIO_NUM_0;
 // Debounce parameters
 const unsigned long DEBOUNCE_DELAY = 50;  // ms
 
-DFRobot_BMP280_IIC bmp(&Wire, DFRobot_BMP280_IIC::eSdoLow);
+DFRobot_BMP280_IIC Bmp(&Wire, DFRobot_BMP280_IIC::eSdoHigh); // Scan showed address 0x77
 DFRobot_ADXL345_I2C ADXL345(&Wire,0x53);
-DFRobot_ITG3200 gyro(&Wire, 0x68);
-DFRobot_QMC5883 compass(&Wire, /*I2C addr*/VCM5883L_ADDRESS);
-DFRobot_FreeTenIMU FreeTenIMU(&ADXL345,&gyro,&compass,&bmp);
+DFRobot_ITG3200 Gyro(&Wire, 0x68);
+DFRobot_QMC5883 Compass(&Wire, VCM5883L_ADDRESS); // Scan showed address 0x0C
+DFRobot_FreeTenIMU FreeTenIMU(&ADXL345,&Gyro,&Compass,&Bmp);
 
 // State for debounce
 bool     lastPhysicalState = HIGH;  // what the pin actually read last time
 bool     debouncedState   = HIGH;  // the “real” button state after debounce
 unsigned long lastChangeTime = 0;  // when physical state last changed
 
+int ACC_RAW[3];
+int MAG_RAW[3];
+
+
 void setup() {
   Serial.begin(115200);
-  FreeTenIMU.begin();
-  pinMode(BUTTON_PIN, INPUT);
+  Wire.begin(8, 9);
+  Serial.println("Scanning...");
+  for (byte addr = 1; addr < 127; addr++) {
+    // Serial.printf(("Checking address 0x%02X ... "), addr);
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.print("Found device at 0x");
+      Serial.println(addr, HEX);
+    }
+  }
+  Serial.println("Checking sensors one by one...");
+
+  if (!ADXL345.begin()) {
+    Serial.println("ADXL345 init failed");
+  } else {
+    Serial.println("ADXL345 init OK");
+    Serial.println("Poering on ADXL345");
+    ADXL345.powerOn();
+  }
+
+  // Gyro isn't working so skip for now.
+  // if (!gyro.begin()) {
+  //   Serial.println("ITG3200 init failed");
+  // } else {
+  //   Serial.println("ITG3200 init OK");
+  // }
+
+  if (!Compass.begin()) {
+    Serial.println("QMC5883 init failed");
+  } else {
+    Serial.println("QMC5883 init OK");
+  }
+
+  if (!Bmp.begin()) {
+    Serial.println("BMP280 init failed");
+  } else {
+    Serial.println("BMP280 init OK");
+  }
+
+  // FreeTunIMU doesn't work as gyro isn't working for some reason.
+  // if (!FreeTenIMU.begin()) {
+  //   Serial.println("FreeTenIMU init failed");
+  // }
+  // else {
+  //   Serial.println("FreeTenIMU init success");
+  // }
 }
 
 void loop() {
-  sEulAnalog_t   sEul;
-  unsigned long t = millis();
-  // 1) Read the button (LOW = pressed, HIGH = released)
-  // bool currentReading = (digitalRead(BUTTON_PIN) == LOW);
+  // Read accelerometer
+  ADXL345.readAccel(ACC_RAW);
+  float ax = ACC_RAW[0] * 0.004; // Convert to g
+  float ay = ACC_RAW[1] * 0.004;
+  float az = ACC_RAW[2] * 0.004;
 
-  //   // 2) If it’s different from last time, reset the timer
-  // if (currentReading != lastPhysicalState) {
-  //   lastChangeTime = millis();
-  //   lastPhysicalState = currentReading;
-  // }
+  // Print accelerometer data in csv format
+  Serial.printf("%.3f,%.3f,%.3f\n", ax, ay, az);
 
-  // // 3) If it’s been stable longer than the debounce delay…
-  // if ((millis() - lastChangeTime) > DEBOUNCE_DELAY) {
-  //   // …and if it’s actually changed the debounced state, update it
-  //   if (currentReading != debouncedState) {
-  //     debouncedState = currentReading;
-  //   }
-  // }
-
-  bool pressed = (digitalRead(BUTTON_PIN) == HIGH);
-
-  int heartActivity = analogRead(HEART_ACTIVITY_PIN);
-  int accRaw[3];
-  ADXL345.readAccel(accRaw);
-  float x_g = accRaw[0] * 0.004;
-  float y_g = accRaw[1] * 0.004;
-  float z_g = accRaw[2] * 0.004;
-  sEul = FreeTenIMU.getEul();
-  float gyro_dps[3];
-  gyro.readGyro(gyro_dps);
-  // Serial.print("Accel (counts): ");
-  // Serial.print("X="); Serial.print(x_g);
-  // Serial.print("  Y="); Serial.print(y_g);
-  // Serial.print("  Z="); Serial.print(z_g);
-  // gyro.readGyro(gyro_dps); 
-  // Serial.print("\tGyro (°/s): X="); Serial.print(gyro_dps[0], 2);
-  // Serial.print(" Y=");          Serial.print(gyro_dps[1], 2);
-  // Serial.print(" Z=");          Serial.print(gyro_dps[2], 2);
-  // Serial.print("\tpitch:");
-  // Serial.print(sEul.pitch, 3);
-  // Serial.print(" ");
-  // Serial.print("roll:");
-  // Serial.print(sEul.roll, 3);
-  // Serial.print(" ");
-  // Serial.print("yaw:");
-  // Serial.print(sEul.head, 3);
-  // Serial.print(" ");
-  // Serial.print("\t Button: ");
-  // Serial.print(pressed);
-  // Serial.print("\t Heart Activity = ");
-  // Serial.println(heartActivity);
-
-  // CSV Print
-  Serial.print(t);             Serial.print(',');
-  Serial.print(x_g, 3);         Serial.print(',');
-  Serial.print(y_g, 3);         Serial.print(',');
-  Serial.print(z_g, 3);         Serial.print(',');
-  Serial.print(gyro_dps[0], 2);         Serial.print(',');
-  Serial.print(gyro_dps[1], 2);         Serial.print(',');
-  Serial.print(gyro_dps[2], 2);         Serial.print(',');
-  Serial.print(sEul.pitch, 3);      Serial.print(',');
-  Serial.print(sEul.roll,  3);      Serial.print(',');
-  Serial.print(sEul.head,   3);      Serial.print(',');
-  Serial.print(pressed?1:0);   Serial.print(',');
-  Serial.println(heartActivity);
-  delay(10);
 }
