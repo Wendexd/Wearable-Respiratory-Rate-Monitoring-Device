@@ -97,11 +97,12 @@ void loop() {
   // Read accelerometer
 
   ADXL345.readAccel(ACC_RAW);
-  float ax = ACC_RAW[0] * 0.004; // Convert to g
-  float ay = ACC_RAW[1] * 0.004;
-  float az = ACC_RAW[2] * 0.004;
+  float ax = (int16_t)ACC_RAW[0] * 0.004; // Convert to g
+  float ay = (int16_t)ACC_RAW[1] * 0.004;
+  float az = (int16_t)ACC_RAW[2] * 0.004;
 
   // Print accelerometer data in csv format
+
   Serial.printf("%.3f,%.3f,%.3f\n", ax, ay, az);
 
 }
