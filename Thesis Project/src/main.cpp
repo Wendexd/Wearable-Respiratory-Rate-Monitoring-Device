@@ -44,46 +44,58 @@ void setup() {
       Serial.println(addr, HEX);
     }
   }
-  Serial.println("Checking sensors one by one...");
 
-  if (!ADXL345.begin()) {
-    Serial.println("ADXL345 init failed");
-  } else {
-    Serial.println("ADXL345 init OK");
-    Serial.println("Poering on ADXL345");
-    ADXL345.powerOn();
+  Wire.beginTransmission(0x68);
+  Wire.write(0x00);  // WHO_AM_I register
+  Wire.endTransmission();
+  Wire.requestFrom(0x68, 1);
+  if (Wire.available()) {
+    Serial.print("WHO_AM_I: ");
+    Serial.println(Wire.read(), HEX);
   }
 
-  // Gyro isn't working so skip for now.
-  // if (!gyro.begin()) {
+  // Serial.println("Checking sensors one by one...");
+
+  // if (!ADXL345.begin()) {
+  //   Serial.println("ADXL345 init failed");
+  // } else {
+  //   Serial.println("ADXL345 init OK");
+  // }
+  
+  // // Gyro isn't working so skip for now.
+  // if (!Gyro.begin()) {
   //   Serial.println("ITG3200 init failed");
   // } else {
   //   Serial.println("ITG3200 init OK");
   // }
-
-  if (!Compass.begin()) {
-    Serial.println("QMC5883 init failed");
-  } else {
-    Serial.println("QMC5883 init OK");
-  }
-
-  if (!Bmp.begin()) {
-    Serial.println("BMP280 init failed");
-  } else {
-    Serial.println("BMP280 init OK");
-  }
-
+  
+  // if (!Compass.begin()) {
+  //   Serial.println("QMC5883 init failed");
+  // } else {
+  //   Serial.println("QMC5883 init OK");
+  // }
+  
+  // if (!Bmp.begin()) {
+  //   Serial.println("BMP280 init failed");
+  // } else {
+  //   Serial.println("BMP280 init OK");
+  // }
+  
+  
+  // Serial.println("Powering on ADXL345");
+  // ADXL345.powerOn();
   // FreeTunIMU doesn't work as gyro isn't working for some reason.
-  // if (!FreeTenIMU.begin()) {
-  //   Serial.println("FreeTenIMU init failed");
-  // }
-  // else {
-  //   Serial.println("FreeTenIMU init success");
-  // }
+  if (!FreeTenIMU.begin()) {
+    Serial.println("FreeTenIMU init failed");
+  }
+  else {
+    Serial.println("FreeTenIMU init success");
+  }
 }
 
 void loop() {
   // Read accelerometer
+
   ADXL345.readAccel(ACC_RAW);
   float ax = ACC_RAW[0] * 0.004; // Convert to g
   float ay = ACC_RAW[1] * 0.004;
@@ -93,3 +105,4 @@ void loop() {
   Serial.printf("%.3f,%.3f,%.3f\n", ax, ay, az);
 
 }
+
