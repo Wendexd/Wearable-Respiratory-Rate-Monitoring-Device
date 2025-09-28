@@ -29,12 +29,13 @@ bool     debouncedState   = HIGH;  // the “real” button state after debounce
 unsigned long lastChangeTime = 0;  // when physical state last changed
 
 int ACC_RAW[3];
-int MAG_RAW[3];
+float MAG_RAW[3];
 
 
 void setup() {
   Serial.begin(115200);
   Wire.begin(8, 9);
+  pinMode(HEART_ACTIVITY_PIN, INPUT_PULLUP);
   Serial.println("Scanning...");
   for (byte addr = 1; addr < 127; addr++) {
     // Serial.printf(("Checking address 0x%02X ... "), addr);
@@ -95,15 +96,23 @@ void setup() {
 
 void loop() {
   // Read accelerometer
-
   ADXL345.readAccel(ACC_RAW);
   float ax = (int16_t)ACC_RAW[0] * 0.004; // Convert to g
   float ay = (int16_t)ACC_RAW[1] * 0.004;
   float az = (int16_t)ACC_RAW[2] * 0.004;
 
-  // Print accelerometer data in csv format
+  sEulAnalog_t sEul = FreeTenIMU.getEul();
+  int heartActivity = analogRead(HEART_ACTIVITY_PIN);
+  Gyro.readGyro(MAG_RAW);
 
-  Serial.printf("%.3f,%.3f,%.3f\n", ax, ay, az);
+  // Print accelerometer data in csv format
+  Serial.printf("%.3f,%.3f,%.3f,", ax, ay, az);
+  // Print gyro data in csv format
+  Serial.printf("%.3f,%.3f,%.3f,", MAG_RAW[0], MAG_RAW[1], MAG_RAW[2]);
+  // Print roll, pitch, heading in csv format
+  Serial.printf("%.3f,%.3f,%.3f,", sEul.roll, sEul.pitch, sEul.head);
+  // Print heart activity
+  Serial.println(heartActivity);
 
 }
 
