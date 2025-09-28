@@ -3,6 +3,8 @@ import threading
 import time
 import csv
 import keyboard
+from datetime import datetime
+from pathlib import Path
 
 # Configuration
 PORT_ESP32 = 'COM4' 
@@ -12,6 +14,7 @@ OUTPUT_FILE = 'timesync_data.csv'
 LAPTOP_MODE = True # When this is true, ESP32 + Laptop spacebar for manual readings.
 RECORDING_FREQUENCY = 50 # Hz
 RECORDING_PERIOD = 1 / RECORDING_FREQUENCY
+FOLDER_PATH = Path("Recording Sessions")
  
 # Shared buffer
 dataBuffer = []
@@ -21,8 +24,11 @@ running  = True
 
 def initSerial(port, baudrate):
     """Initialize and return a serial connection."""
-    return serial.Serial(port, baudrate, timeout=0.1)
-
+    try :
+        return serial.Serial(port, baudrate, timeout=0.1)
+    except Exception as e:
+        print(f"Error opening serial port {port}: {e}")
+        exit(1)
 
 def readESP32(ser):
     """Read one line from ESP32 serial port."""
@@ -77,4 +83,12 @@ def write_csv(filename, data):
 
 
 if __name__ == "__main__":
-    recordData()
+    # Get current date and time
+    now = datetime.now()
+
+    FOLDER_PATH.mkdir(parents=True, exist_ok=True)  # Ensure the folder exists
+
+    # Format it into a string
+    fileName = now.strftime("recording_%Y%m%d_%H%M%S.csv")
+    filePath = FOLDER_PATH / fileName
+    recordData(filePath)
