@@ -30,10 +30,21 @@ def initSerial(port, baudrate):
         print(f"Error opening serial port {port}: {e}")
         exit(1)
 
-def readESP32(ser):
+def readESP32(ser, log_file="esp32_log.txt"):
     """Read one line from ESP32 serial port."""
     line = ser.readline().decode('utf-8').strip()
-    return line if line else ""
+    if not line:
+        return ""
+    
+    parts = line.split(",")
+    if len(parts) != 10:  # EXPECTED number of values from ESP32
+        # Log malformed lines for debugging
+        with open(log_file, "a") as f:
+            f.write(f"{time.time()}: {line}\n")
+        print(f"[WARN] Skipping malformed ESP32 line ({len(parts)} fields): {line}")
+        return ""
+    
+    return line
 
 
 def readManual(manualSerial = None):
@@ -62,7 +73,8 @@ def recordData(output_file=OUTPUT_FILE, freq=RECORDING_FREQUENCY):
             manual_data = readManual()
 
             # Save row
-            data_buffer.append((timestamp, esp_data, manual_data))
+            if esp_data:  # Only save if we got valid ESP32 data
+                data_buffer.append((timestamp, esp_data, manual_data))
             time.sleep(period)
 
     except KeyboardInterrupt:
