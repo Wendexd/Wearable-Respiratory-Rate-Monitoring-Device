@@ -2,8 +2,11 @@ import os
 import numpy as np
 from scipy.signal import butter, filtfilt, find_peaks, welch
 
+# --- Configuration ---
 # Path to your "Recording Sessions" folder
 RECORDING_FOLDER = r"C:\Users\wende\OneDrive\UNI Cloud\2025\Thesis Project\Technical Stuff\Data Analysis\Recording Scripts\Recording Sessions"
+RESP_MODE_DEFAULT = "z" # Options: "x", "y", "z", "mag"
+
 
 def ChooseFile():
     """CLI menu to pick a CSV file from RECORDING_FOLDER."""
@@ -94,6 +97,16 @@ def BandpassFilter(signal, fs, low=0.05, high=0.8, order=4):
 def ComputeMagnitude(ax, ay, az):
     return np.sqrt(ax**2 + ay**2 + az**2)
 
+def GetRespSignal(df, mode=RESP_MODE_DEFAULT):
+    mode = mode.lower()
+    if mode == "z":
+        return df["az"].to_numpy(), "Z-axis (g)"
+    elif mode == "mag":
+        mag = ComputeMagnitude(df["ax"].to_numpy(), df["ay"].to_numpy(), df["az"].to_numpy())
+        return mag, "Accel Magnitude (g)"
+    else:
+        raise ValueError('mode must be "z" or "mag"')
+
 # RR Estimation Functions
 def EstimateRRTime(peaks, time):
     # Breaths per minute from peak intervals
@@ -129,6 +142,7 @@ def PlotSignals(df, respSignal, peaks):
     plt.show()
 
 def plot_file(filePath):
+    import pandas as pd
     import matplotlib.pyplot as plt
 
     """Load and plot ESP32 + manual breathing data from CSV."""
@@ -229,11 +243,11 @@ if __name__ == "__main__":
 
     # Processing 
     fs = 50.0 # assumed sampling frequency
-    mag = ComputeMagnitude(df['ax'], df['ay'], df['az'])
-    filtered = BandpassFilter(mag, fs, low=0.05, high=0.8, order=4)
+    respRaw, respLabel = GetRespSignal(df, mode=RESP_MODE_DEFAULT)
+    filtered = BandpassFilter(respRaw, fs, low=0.05, high=0.8, order=4)
 
     # Peak detection
-    peaks, _ = find_peaks(filtered, distance=fs*2.0, prominence=0.1)  # min 2s apart
+    peaks, _ = find_peaks(filtered, distance=fs*1, prominence=0.1)  # min 1s apart
     rrTime = EstimateRRTime(peaks, df["Time (s)"])
     rrFreq = EstimateRRFreq(filtered, fs, window=30, low=0.05, high=0.8)
     print(f"Estimated RR (Time Domain): {rrTime:.2f} breaths/min" if rrTime else "RR (Time Domain): N/A")
