@@ -12,10 +12,14 @@
 #include <Arduino.h>
 #include <DFRobot_FreeTenIMU.h>
 
-// const uint8_t BUTTON_PIN = A3;
+#define ECG_HZ 500 // ECG sampling rate
+#define IMU_HZ 50  // IMU sampling rate
+#define ECG_PERIOD_US (1000000 / ECG_HZ)
+#define IMU_PERIOD_MS (1000 / IMU_HZ)
+
+
 const uint8_t HEART_ACTIVITY_PIN = GPIO_NUM_0;
 // Debounce parameters
-const unsigned long DEBOUNCE_DELAY = 50;  // ms
 
 DFRobot_BMP280_IIC Bmp(&Wire, DFRobot_BMP280_IIC::eSdoHigh); // Scan showed address 0x77
 DFRobot_ADXL345_I2C ADXL345(&Wire,0x53);
@@ -28,9 +32,27 @@ bool     lastPhysicalState = HIGH;  // what the pin actually read last time
 bool     debouncedState   = HIGH;  // the “real” button state after debounce
 unsigned long lastChangeTime = 0;  // when physical state last changed
 
+unsigned long lastImuMs = 0;
+uint32_t nextEcgSampleUs = 0;
+
+// Data storage
 int ACC_RAW[3];
 float MAG_RAW[3];
+// HeartSpeed heartSpeed(HEART_ACTIVITY_PIN);  NVM this only works on AVR platforms
+volatile int g_lastBpm = 0;
 
+static inline void PrintCsvPrefix(const char* src) {
+  Serial.print(src);
+  Serial.print(",");
+}
+
+void mycb(uint8_t rawData, int value) {
+  // Library calls this either raw or bpm depending on mode
+  // We're using bpm mode, so rawData == 0, value = bpm
+  if (!rawData) {
+    g_lastBpm = value;
+  }
+}
 
 void setup() {
   Serial.begin(115200);
@@ -55,64 +77,62 @@ void setup() {
     Serial.println(Wire.read(), HEX);
   }
 
-  // Serial.println("Checking sensors one by one...");
-
-  // if (!ADXL345.begin()) {
-  //   Serial.println("ADXL345 init failed");
-  // } else {
-  //   Serial.println("ADXL345 init OK");
-  // }
-  
-  // // Gyro isn't working so skip for now.
-  // if (!Gyro.begin()) {
-  //   Serial.println("ITG3200 init failed");
-  // } else {
-  //   Serial.println("ITG3200 init OK");
-  // }
-  
-  // if (!Compass.begin()) {
-  //   Serial.println("QMC5883 init failed");
-  // } else {
-  //   Serial.println("QMC5883 init OK");
-  // }
-  
-  // if (!Bmp.begin()) {
-  //   Serial.println("BMP280 init failed");
-  // } else {
-  //   Serial.println("BMP280 init OK");
-  // }
-  
-  
-  // Serial.println("Powering on ADXL345");
-  // ADXL345.powerOn();
-  // FreeTunIMU doesn't work as gyro isn't working for some reason.
   if (!FreeTenIMU.begin()) {
     Serial.println("FreeTenIMU init failed");
   }
   else {
     Serial.println("FreeTenIMU init success");
   }
+  ADXL345.setRangeSetting(2); // Set the range to +/-2g
+  ADXL345.setFullResBit(true); // Set to full resolution mode, 3.9mg/LSB
+
+  // Heart rate sensor
+  // heartSpeed.setCB(mycb);
+  // heartSpeed.begin();
 }
 
 void loop() {
-  // Read accelerometer
-  ADXL345.readAccel(ACC_RAW);
-  float ax = (int16_t)ACC_RAW[0] * 0.004; // Convert to g
-  float ay = (int16_t)ACC_RAW[1] * 0.004;
-  float az = (int16_t)ACC_RAW[2] * 0.004;
+  // ECG @ 500 Hz 
 
-  sEulAnalog_t sEul = FreeTenIMU.getEul();
-  int heartActivity = analogRead(HEART_ACTIVITY_PIN);
-  Gyro.readGyro(MAG_RAW);
+  uint32_t nowUs = micros();
+  if ((int32_t)(nowUs - nextEcgSampleUs) >= 0) {
+    nextEcgSampleUs += ECG_PERIOD_US;
 
-  // Print accelerometer data in csv format
-  Serial.printf("%.3f,%.3f,%.3f,", ax, ay, az);
-  // Print gyro data in csv format
-  Serial.printf("%.3f,%.3f,%.3f,", MAG_RAW[0], MAG_RAW[1], MAG_RAW[2]);
-  // Print roll, pitch, heading in csv format
-  Serial.printf("%.3f,%.3f,%.3f,", sEul.roll, sEul.pitch, sEul.head);
-  // Print heart activity
-  Serial.println(heartActivity);
+    int ecgRaw = analogRead(HEART_ACTIVITY_PIN); // 0..4095 on ESP32
+    uint32_t timestamp = millis();
 
+    // timestamp, source=ECG, IMU fields empty, ecg_raw, hr_bpm blank
+    PrintCsvPrefix("ECG");
+    // 10 IMU/orientation fields: ax..head (leave empty)
+    Serial.print(",,,,,,,,,"); // 10 commas for 10 empty fields
+    Serial.println(ecgRaw);      // ecg_raw
+  }
+
+  // IMU @ 50 Hz 
+
+  uint32_t nowMs = millis();
+  if (nowMs - lastImuMs >= IMU_PERIOD_MS) {
+    lastImuMs = nowMs;
+
+    // Read IMU
+    // Read accelerometer
+    ADXL345.readAccel(ACC_RAW);
+    float ax = (int16_t)ACC_RAW[0] * 0.0039; // Convert to g
+    float ay = (int16_t)ACC_RAW[1] * 0.0039;
+    float az = (int16_t)ACC_RAW[2] * 0.0039;
+
+    sEulAnalog_t sEul = FreeTenIMU.getEul();
+    Gyro.readGyro(MAG_RAW);
+
+    // timestamp, source=IMU
+    PrintCsvPrefix("IMU");
+    // ax,ay,az
+    Serial.printf("%.3f,%.3f,%.3f,", ax, ay, az);
+    // gx,gy,gz
+    Serial.printf("%.3f,%.3f,%.3f,", MAG_RAW[0], MAG_RAW[1], MAG_RAW[2]);
+    // roll,pitch,head
+    Serial.printf("%.3f,%.3f,%.3f,", sEul.roll, sEul.pitch, sEul.head);
+    Serial.println();
+  }
 }
 

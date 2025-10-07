@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from pathlib import Path
-from scipy.signal import butter, filtfilt, find_peaks, welch, interp1d
+from scipy.signal import butter, filtfilt, find_peaks, welch
+from scipy.interpolate import interp1d
 
 # --- Configuration ---
 # Path to your "Recording Sessions" folder
