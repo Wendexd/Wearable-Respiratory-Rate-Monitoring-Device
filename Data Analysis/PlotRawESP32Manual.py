@@ -28,68 +28,53 @@ def ChooseFile():
     return os.path.join(RECORDING_FOLDER, files[choice])
 
 def LoadData(filePath, saveBadRows=True):
+    """
+    Parses new lines like:
+    Builds a flat dataframe with columns:
+      Timestamp (sec), Time (s), Manual, ax..head, heart
+    """
+    # Read two columns: the quoted inner CSV and Manual
+    df_in = pd.read_csv(
+        filePath,
+        header=None,
+        names=["ESP32_Data", "Manual"],
+        skiprows=1,        # skip the ':ESP32_Data,Manual' header
+        quotechar='"',
+        engine="python"
+    )
 
+    # Split the quoted inner CSV into 11 tokens (ts_us, KIND, 9 payload slots)
+    parts = df_in["ESP32_Data"].astype(str).str.split(",", n=10, expand=True)
+    parts.columns = ["ts_us","kind","ax","ay","az","gx","gy","gz","roll","pitch","last"]
 
-    df = pd.read_csv(filePath)
+    # Numeric conversions (coerce empties to NaN)
+    for c in ["ts_us","ax","ay","az","gx","gy","gz","roll","pitch","last"]:
+        parts[c] = pd.to_numeric(parts[c], errors="coerce")
 
-    # Relative time
+    # Map 'last' into head (IMU) or heart (ECG)
+    kind = parts["kind"].astype(str).str.upper()
+    head  = np.where(kind=="IMU", parts["last"], np.nan)
+    heart = np.where(kind=="ECG", parts["last"], np.nan)
+
+    # Build the flat table your downstream code expects
+    df = pd.DataFrame({
+        "Timestamp": parts["ts_us"] / 1e6,   # seconds (device micros)
+        "Manual": pd.to_numeric(df_in["Manual"], errors="coerce").fillna(0).astype(int),
+        "ax": parts["ax"], "ay": parts["ay"], "az": parts["az"],
+        "gx": parts["gx"], "gy": parts["gy"], "gz": parts["gz"],
+        "roll": parts["roll"], "pitch": parts["pitch"], "head": head,
+        "heart": heart,
+    })
+
+    # Relative time axis
     df["Time (s)"] = df["Timestamp"] - df["Timestamp"].iloc[0]
 
-    # --- 1) Filter by exact field count BEFORE splitting ---
-    expectedCols = 10                      # ax, ay, az, gx, gy, gz, roll, pitch, head, heart
-    # Count commas; a valid line has expectedCols-1 commas
-    commaMask = df["ESP32_Data"].astype(str).str.count(",") == (expectedCols - 1)
-    badCountFields = (~commaMask).sum()
+    # Log a quick summary (optional)
+    n_imu = (kind=="IMU").sum()
+    n_ecg = (kind=="ECG").sum()
+    print(f"[INFO] Parsed rows: {len(df)} (IMU={n_imu}, ECG={n_ecg})")
 
-    if badCountFields > 0:
-        print(f"[Warning] Rows with wrong field count: {badCountFields}/{len(df)}")
-        print(df.loc[~commaMask, ["Timestamp", "ESP32_Data"]].head())
-
-    dfGood = df.loc[commaMask].copy()
-    badRows = df.loc[~commaMask].copy()
-
-    # --- 2) Split and convert to numeric ---
-    esp32Split = dfGood["ESP32_Data"].str.split(",", expand=True)
-    # Convert to numeric; invalid -> NaN
-    esp32Split = esp32Split.apply(pd.to_numeric, errors="coerce")
-
-    # --- 3) Drop rows with NaNs (corrupted numeric values) ---
-    nanMask = esp32Split.isna().any(axis=1)
-    badCountNumeric = nanMask.sum()
-    if badCountNumeric > 0:
-        print(f"[Warning] Rows with non-numeric values: {badCountNumeric}/{len(dfGood)}")
-        print(dfGood.loc[nanMask, ["Timestamp", "ESP32_Data"]].head())
-
-    # Accumulate all bads (for optional save)
-    badRows = pd.concat([badRows, dfGood.loc[nanMask]], axis=0)
-
-    # Keep only clean rows
-    dfClean = dfGood.loc[~nanMask].copy()
-    esp32Clean = esp32Split.loc[~nanMask].copy()
-
-    # --- 4) Name columns and merge back ---
-    esp32Clean.columns = [
-        "ax", "ay", "az",
-        "gx", "gy", "gz",
-        "roll", "pitch", "head",
-        "heart"
-    ]
-    dfClean = dfClean.reset_index(drop=True)
-    esp32Clean = esp32Clean.reset_index(drop=True)
-    dfClean = pd.concat([dfClean, esp32Clean], axis=1)
-
-    # --- 5) Final logging & optional dump of bad rows ---
-    totalBad = badCountFields + badCountNumeric
-    kept = len(dfClean)
-    print(f"[INFO] Loaded {kept} clean rows; dropped {totalBad} corrupted rows out of {len(df)} total.")
-
-    if saveBadRows and totalBad > 0:
-        out_bad = Path(filePath).with_name(Path(filePath).stem + "_badrows.csv")
-        badRows.to_csv(out_bad, index=False)
-        print(f"[INFO] Saved {len(badRows)} bad rows to: {out_bad}")
-
-    return dfClean
-
+    return df
 
 def BandpassFilter(signal, samplingFreq, low=0.05, high=0.8, order=4):
     nyq = 0.5 * samplingFreq
@@ -342,19 +327,32 @@ if __name__ == "__main__":
     print(f"\nSelected file: {filePath}")
     df = LoadData(filePath)
 
-    # Processing 
-    samplingFreq = 50.0 # assumed sampling frequency
-    PlotECG(df, samplingFreq, bandLow=0.5, bandHigh=40.0, order=4, displayRaw=True)
-    respRaw, respLabel = GetRespSignal(df, mode=RESP_MODE_DEFAULT)
+    # --- Split the mixed dataframe ---
+    # IMU rows have accel values; ECG rows have 'heart'
+    df_imu = df[df["az"].notna()].sort_values("Time (s)").reset_index(drop=True)
+    df_ecg = df[df["heart"].notna()].sort_values("Time (s)").reset_index(drop=True)
 
-    IMUfiltered = BandpassFilter(respRaw, samplingFreq, low=0.05, high=0.8, order=4)
+    # --- Sampling frequencies per stream ---
+    imuSamplingFreq = 50.0
+    ecgSamplingFreq = 500.0
 
-    # Peak detection
-    peaks, _ = find_peaks(IMUfiltered, distance=samplingFreq*1, prominence=0.1)  # min 1s apart
-    rrTime = EstimateRRTime(peaks, df["Time (s)"])
-    rrFreq = EstimateRRFreq(IMUfiltered, samplingFreq, window=30, low=0.05, high=0.8)
+    # --- ECG plotting/processing uses the ECG-only frame ---
+    PlotECG(df_ecg, ecgSamplingFreq, bandLow=0.5, bandHigh=40.0, order=4, displayRaw=True)
+
+    # --- Resp/IMU path uses the IMU-only frame ---
+    respRaw, respLabel = GetRespSignal(df_imu, mode=RESP_MODE_DEFAULT)
+    IMUfiltered = BandpassFilter(respRaw, imuSamplingFreq, low=0.05, high=0.8, order=4)
+
+    # Peak detection on IMUfiltered; index aligns with df_imu after reset_index above
+    peaks, _ = find_peaks(IMUfiltered, distance=int(imuSamplingFreq*1), prominence=0.1)
+
+    # Use the IMU timeline for RR (time-domain) calc
+    rrTime = EstimateRRTime(peaks, df_imu["Time (s)"].to_numpy())
+    rrFreq = EstimateRRFreq(IMUfiltered, imuSamplingFreq, window=30, low=0.05, high=0.8)
+
     print(f"Estimated RR (Time Domain): {rrTime:.2f} breaths/min" if rrTime else "RR (Time Domain): N/A")
     print(f"Estimated RR (Freq Domain): {rrFreq:.2f} breaths/min" if rrFreq else "RR (Freq Domain): N/A")
-    PlotSignals(df, IMUfiltered, peaks)
-    # plot_file(filePath)
+
+    # Plot respiration vs IMU time, overlay Manual from df_imu
+    PlotSignals(df_imu, IMUfiltered, peaks)
 
