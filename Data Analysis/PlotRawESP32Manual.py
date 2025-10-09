@@ -113,8 +113,8 @@ def DetectRRECG(signal, samplingFreq, sanityFilter=True):
     if len(peaks) >= 3 and sanityFilter:
         rrIntervalSeconds = np.diff(peaks) / samplingFreq
         keepMask = np.hstack(
-            [True], # Keep first peak
-            (rrIntervalSeconds > 0.3) & (rrIntervalSeconds < 6.0))
+            [True, # Keep first peak
+            (rrIntervalSeconds > 0.3) & (rrIntervalSeconds < 6.0)])
         rPeakIndices = peaks[keepMask]
 
     return peaks, rPeakIndices
@@ -160,7 +160,7 @@ def DeriveEDRFromRPeaks(ecgSignal, timeSeconds, samplingFreq, respLowFreq=0.05, 
     # Bandpass in the respiratory band (default 0.1-0.5Hz) to get the final EDR waveform.
     edrFiltered = BandpassFilter(
         edrUniform,
-        fs=samplingFreq,
+        samplingFreq=samplingFreq,
         low=respLowFreq,
         high=respHighFreq,
         order=4
@@ -191,6 +191,14 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
     nyq = 0.5 * samplingFreq
     highHz = min(bandHigh, nyq * 0.9)  # avoid >Nyquist
     ecgFiltered = BandpassFilter(ecgRaw, samplingFreq, low=bandLow, high=highHz, order=order)
+    EDRFiltered = DeriveEDRFromRPeaks(
+    ecgSignal=ecgRaw,
+    timeSeconds=timeSeconds,
+    samplingFreq=samplingFreq,
+    respLowFreq=0.05,
+    respHighFreq=0.8,
+    outputTime=timeSeconds 
+    )
 
     # Print some stats
     print(f"[ECG] fs={samplingFreq:.1f} Hz, band={bandLow}-{highHz} Hz, order={order}")
@@ -202,6 +210,7 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
     if (displayRaw):
         plt.plot(timeSeconds, ecgRaw,  alpha=0.4, label="Raw ECG")
     plt.plot(timeSeconds, ecgFiltered, linewidth=1.5, label="Filtered ECG (QRS band)")
+    plt.plot(timeSeconds, EDRFiltered, linewidth=2, label="Filered Derived EDR")
     plt.xlabel("Time (s)")
     plt.ylabel("ECG (a.u.)")
     plt.title(f"ECG: Raw vs. Filtered (Band {bandLow}-{highHz} Hz)")
