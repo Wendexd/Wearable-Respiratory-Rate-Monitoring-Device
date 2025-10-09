@@ -41,7 +41,9 @@ float MAG_RAW[3];
 // HeartSpeed heartSpeed(HEART_ACTIVITY_PIN);  NVM this only works on AVR platforms
 volatile int g_lastBpm = 0;
 
-static inline void PrintCsvPrefix(const char* src) {
+static inline void PrintCsvPrefix(uint32_t timeUs, const char* src) {
+  Serial.print(timeUs);
+  Serial.print(",");
   Serial.print(src);
   Serial.print(",");
 }
@@ -99,12 +101,11 @@ void loop() {
     nextEcgSampleUs += ECG_PERIOD_US;
 
     int ecgRaw = analogRead(HEART_ACTIVITY_PIN); // 0..4095 on ESP32
-    uint32_t timestamp = millis();
 
     // timestamp, source=ECG, IMU fields empty, ecg_raw, hr_bpm blank
-    PrintCsvPrefix("ECG");
+    PrintCsvPrefix(nowUs, "ECG");
     // 10 IMU/orientation fields: ax..head (leave empty)
-    Serial.print(",,,,,,,,,"); // 10 commas for 10 empty fields
+    Serial.print(",,,,,,,,"); // 9 commas for 9 empty fields
     Serial.println(ecgRaw);      // ecg_raw
   }
 
@@ -125,13 +126,14 @@ void loop() {
     Gyro.readGyro(MAG_RAW);
 
     // timestamp, source=IMU
-    PrintCsvPrefix("IMU");
+    uint32_t timeUs = micros();
+    PrintCsvPrefix(timeUs, "IMU");
     // ax,ay,az
     Serial.printf("%.3f,%.3f,%.3f,", ax, ay, az);
     // gx,gy,gz
     Serial.printf("%.3f,%.3f,%.3f,", MAG_RAW[0], MAG_RAW[1], MAG_RAW[2]);
     // roll,pitch,head
-    Serial.printf("%.3f,%.3f,%.3f,", sEul.roll, sEul.pitch, sEul.head);
+    Serial.printf("%.3f,%.3f,%.3f", sEul.roll, sEul.pitch, sEul.head);
     Serial.println();
   }
 }

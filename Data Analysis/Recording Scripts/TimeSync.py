@@ -12,8 +12,6 @@ PORT_MANUAL = 'COM4'
 BAUDRATE = 115200
 OUTPUT_FILE = 'timesync_data.csv'
 LAPTOP_MODE = True # When this is true, ESP32 + Laptop spacebar for manual readings.
-RECORDING_FREQUENCY = 50 # Hz
-RECORDING_PERIOD = 1 / RECORDING_FREQUENCY
 FOLDER_PATH = Path("Recording Sessions")
  
 # Shared buffer
@@ -37,7 +35,7 @@ def readESP32(ser, log_file="esp32_log.txt"):
         return ""
     
     parts = line.split(",")
-    if len(parts) != 10:  # EXPECTED number of values from ESP32
+    if len(parts) != 11:  # EXPECTED values from ESP32
         # Log malformed lines for debugging
         with open(log_file, "a") as f:
             f.write(f"{time.time()}: {line}\n")
@@ -58,39 +56,44 @@ def readManual(manualSerial = None):
 
 
 
-def recordData(output_file=OUTPUT_FILE, freq=RECORDING_FREQUENCY):
-    """Main loop to record ESP32 + manual data."""
+def recordData(output_file):
+    """Stream ESP32 lines to CSV with timestamps; MCU dictates the rate."""
     ser = initSerial(PORT_ESP32, BAUDRATE)
-    data_buffer = []
-    period = 1 / freq
 
-    print("Recording... Press Ctrl+C to stop.")
+    # Open CSV once and write header
+    with open(output_file, 'w', newline='', encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['ESP32_Data', 'Manual'])
 
-    try:
-        while True:
-            timestamp = time.time()
-            esp_data = readESP32(ser)
-            manual_data = readManual()
+        print("Recording... Press Ctrl+C to stop.")
+        lines_written = 0
+        try:
+            while True:
+                esp_data = readESP32(ser)
+                if not esp_data:
+                    continue
 
-            # Save row
-            if esp_data:  # Only save if we got valid ESP32 data
-                data_buffer.append((timestamp, esp_data, manual_data))
-            time.sleep(period)
+                manual_data = 1 if (LAPTOP_MODE and keyboard.is_pressed("space")) else 0
+                writer.writerow([esp_data, manual_data])
 
-    except KeyboardInterrupt:
-        print("\nStopping recording...")
-    finally:
-        ser.close()
+                # Flush periodically so a crash/power pull doesn't lose data
+                lines_written += 1
+                if (lines_written % 50) == 0:
+                    csvfile.flush()
 
-    write_csv(output_file, data_buffer)
-    print(f"Saved {len(data_buffer)} records to {output_file}")
+        except KeyboardInterrupt:
+            print("\nStopping recording...")
+        finally:
+            ser.close()
+            csvfile.flush()
+            print(f"Saved {lines_written} records to {output_file}")
 
 
 def write_csv(filename, data):
     """Write buffered data to CSV file."""
     with open(filename, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(['Timestamp', 'ESP32_Data', 'Manual'])
+        writer.writerow(['ESP32_Data', 'Manual'])
         writer.writerows(data)
 
 
