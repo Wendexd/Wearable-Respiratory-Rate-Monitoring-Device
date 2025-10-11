@@ -210,7 +210,7 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
     if (displayRaw):
         plt.plot(timeSeconds, ecgRaw,  alpha=0.4, label="Raw ECG")
     plt.plot(timeSeconds, ecgFiltered, linewidth=1.5, label="Filtered ECG (QRS band)")
-    plt.plot(timeSeconds, EDRFiltered, linewidth=2, label="Filered Derived EDR")
+    # plt.plot(timeSeconds, EDRFiltered, linewidth=2, label="Filered Derived EDR")
     plt.xlabel("Time (s)")
     plt.ylabel("ECG (a.u.)")
     plt.title(f"ECG: Raw vs. Filtered (Band {bandLow}-{highHz} Hz)")
@@ -238,8 +238,6 @@ def PlotSignals(df, respSignal, peaks):
     plt.show()
 
 def plot_file(filePath):
-
-
     """Load and plot ESP32 + manual breathing data from CSV."""
     df = pd.read_csv(filePath)
     
