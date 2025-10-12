@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Configuration
-PORT_ESP32 = 'COM4' 
+PORT_ESP32 = 'COM10' 
 PORT_MANUAL = 'COM4'
 BAUDRATE = 115200
 OUTPUT_FILE = 'timesync_data.csv'
