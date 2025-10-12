@@ -97,6 +97,7 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
     # outputTime=timeSeconds 
     # )
 
+    # --------------------------------- AM --------------------------------
     # QRSbased band for peak detection
     ecgQRS = ECG.QrsBandpass(ecgRaw, samplingFreq)
 
@@ -125,8 +126,12 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
     edrResp = UF.BandpassFilter(edrUniform, edrFs, low=0.1, high=0.5, order=4)
 
     # Windowed Brpm using estimator
-    rrWins = ECG.EstimateRRWindows(uniformTimeS=edrTime, edrUniform=edrResp, winSeconds=32, hopSeconds=8, estimator=ECG.AdaptiveUpcrossCount)
-    mean_brpm = np.mean([w["RR_brpm"] for w in rrWins]) if rrWins else np.nan
+    amRRWindows = ECG.EstimateRRWindows(uniformTimeS=edrTime, edrUniform=edrResp, winSeconds=32, hopSeconds=8, estimator=ECG.AdaptiveUpcrossCount)
+    mean_brpm = np.mean([w["RR_brpm"] for w in amRRWindows]) if amRRWindows else np.nan
+
+    # ------------------------- Baseline Wander RR -------------------------
+    edrBw, rIndices = ECG.EdrBaselineWander(ecgRaw, timeSeconds, samplingFreq)
+    bwRR = ECG.EstimateRRWindows(timeSeconds, edrBw, winSeconds=32, hopSeconds=8, estimator=ECG.AdaptiveUpcrossCount)
 
     # Print some stats
     print(f"[ECG] fs={samplingFreq:.1f} Hz, band={bandLow}-{highHz} Hz, order={order}")
@@ -134,17 +139,27 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
     print(f"[ECG] Filt mean={np.mean(ecgFiltered):.2f}, std={np.std(ecgFiltered):.2f}")
     print(f"[AM] R-peaks: {len(rPeaks)} | EDR fs={edrFs} Hz | mean BRPM={mean_brpm:.2f}")
 
+    if amRRWindows:
+        print("\n[AM] Windowed BRPM estimates:")
+        for r in amRRWindows:
+            print(f"{r['t0']:.1f}-{r['t1']:.1f}s: {r['RR_brpm']:.1f} brpm (crossings={r['crossings']})")
+
+    if bwRR:
+        print("\n[BW] Windowed BRPM estimates:")
+        for r in bwRR:
+            print(f"{r['t0']:.1f}-{r['t1']:.1f}s: {r['RR_brpm']:.1f} brpm (crossings={r['crossings']})")
     # Plot
     if displayRaw:
         plt.plot(timeSeconds, ecgRaw, alpha=0.35, label="ECG raw")
     plt.plot(timeSeconds, ecgQRS, linewidth=1.2, label=f"ECG (QRS {bandLow}-{highHz} Hz)")
     plt.plot(timeSeconds[rPeaks], ecgQRS[rPeaks], "rx", ms=4, label="R-peaks")
+    # plt.plot(timeSeconds, edrBw, label="EDR (BW)", linewidth=1.5, alpha=0.7)
     plt.xlabel("Time (s)"); plt.ylabel("ECG (a.u.)")
     plt.title("ECG with R-peaks (QRS-band)")
     plt.legend(loc="upper right"); plt.tight_layout(); plt.show()
 
     # (b) EDR from AM
-    plt.figure(figsize=(14, 4))
+    plt.figure(figsize=(14, 5))
     plt.plot(edrTime, edrUniform, alpha=0.5, label="EDR (AM, uniform)")
     plt.plot(edrTime, edrResp, linewidth=1.5, label="EDR (0.1–0.5 Hz)")
     ttxt = f"EDR (AM) — mean BRPM={mean_brpm:.2f}" if np.isfinite(mean_brpm) else "EDR (AM)"
@@ -152,10 +167,6 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
     plt.xlabel("Time (s)"); plt.ylabel("EDR (a.u.)")
     plt.legend(loc="upper right"); plt.tight_layout(); plt.show()
 
-    # (c) Optional: print windowed BRPMs
-    if rrWins:
-        first = rrWins[0]; last = rrWins[-1]
-        print(f"[AM] Windows: {len(rrWins)} | first={first['RR_brpm']:.2f} brpm | last={last['RR_brpm']:.2f} brpm")
 
 
 def PlotSignals(df, respSignal, peaks):

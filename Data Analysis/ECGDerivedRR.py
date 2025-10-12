@@ -1,6 +1,6 @@
 import UtilityFunctions as UF
 import numpy as np
-from scipy.signal import find_peaks, peak_widths
+from scipy.signal import find_peaks
 from scipy.interpolate import interp1d
 
 
@@ -150,3 +150,52 @@ def EstimateRRWindows(uniformTimeS, edrUniform, winSeconds, hopSeconds, estimato
         start_time += hopSeconds
 
     return results
+
+def InterpolateNans(x):
+    """Linear fill NaNs in a 1d array."""
+    y = np.asarray(x, dtype=float).copy()
+    nans = np.isnan(y)
+
+    # nothing to do
+    if not np.any(nans):
+        return y
+
+    # if everything is NaN, there's nothing to interpolate
+    if np.all(nans):
+        return np.zeros_like(y)
+
+    idx = np.arange(y.size)
+    y[nans] = np.interp(idx[nans], idx[~nans], y[~nans])
+    return y
+
+def RemoveQrsByMask(ecg, rIndices, fs, halfWidthMs=80):
+    """Zero-out ECG samples around each R-peak to remove QRS influence."""
+    y = ecg.astype(float).copy()
+    halfWidth = max(1, int(round(halfWidthMs * fs / 1000.0)))
+    for i in np.asarray(rIndices, dtype=int):
+        i0 = max(0, i - halfWidth)
+        i1 = min(len(y) - 1, i + halfWidth)
+        y[i0:i1+1] = np.nan
+    return InterpolateNans(y)
+
+def EdrBaselineWander(ecg, timeS, fs, rIndices=None, respLow=0.05, respHigh=0.7, qrsHalfWidthMs=80, bpOrder=4):
+    """Baseline wander EDR:
+    1) If rIndices not given, detect R-peaks
+    2) Mask qrsHalfWidthMs around each R-peak and fill by interpolation
+    3) Bandpass the result in the respiratory band
+    """
+    if rIndices is None or len(rIndices) == 0:
+        ecgQRS = QrsBandpass(ecg, fs)
+        rIndices = DetectRPeaks(ecgQRS, fs)
+
+    ecgNoQRS = RemoveQrsByMask(ecg, rIndices, fs, halfWidthMs=qrsHalfWidthMs)
+
+    edrBw = UF.BandpassFilter(
+        ecgNoQRS,
+        samplingFreq=fs,
+        low=respLow,
+        high=respHigh,
+        order=bpOrder
+    )
+    return edrBw, rIndices
+
