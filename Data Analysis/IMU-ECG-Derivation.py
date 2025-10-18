@@ -133,11 +133,17 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
     edrBw, rIndices = ECG.EdrBaselineWander(ecgRaw, timeSeconds, samplingFreq)
     bwRR = ECG.EstimateRRWindows(timeSeconds, edrBw, winSeconds=32, hopSeconds=8, estimator=ECG.AdaptiveUpcrossCount)
 
+
+    # -------------------------- Beats Per Minute ---------------------------
+    bpmMean = ECG.ECGToBPM(df, samplingFreq)
+
     # Print some stats
+    print("\n--- ECG Analysis Summary ---")
     print(f"[ECG] fs={samplingFreq:.1f} Hz, band={bandLow}-{highHz} Hz, order={order}")
     print(f"[ECG] Raw mean={np.mean(ecgRaw):.2f}, std={np.std(ecgRaw):.2f}")
     print(f"[ECG] Filt mean={np.mean(ecgFiltered):.2f}, std={np.std(ecgFiltered):.2f}")
     print(f"[AM] R-peaks: {len(rPeaks)} | EDR fs={edrFs} Hz | mean BRPM={mean_brpm:.2f}")
+    print(f"[BPM] Mean BPM={bpmMean:.2f}" if bpmMean else "[BPM] Not enough beats to compute BPM.")
 
     if amRRWindows:
         print("\n[AM] Windowed BRPM estimates:")

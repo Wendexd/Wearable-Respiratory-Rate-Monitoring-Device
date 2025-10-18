@@ -199,3 +199,29 @@ def EdrBaselineWander(ecg, timeS, fs, rIndices=None, respLow=0.05, respHigh=0.7,
     )
     return edrBw, rIndices
 
+def ECGToBPM(ecgSignal, samplingFreq, rriMinS=0.3, rriMaxS=2.0):
+    
+    ecg, timeSeconds = GetRawECG(ecgSignal)
+
+    # Filter into QRS band and detect R-peaks
+    ecgQRS = QrsBandpass(ecg, samplingFreq)
+    rPeaks = DetectRPeaks(ecgQRS, samplingFreq)
+    rPeakTimesSeconds = timeSeconds[rPeaks].astype(float)
+
+    # Not enough beats to compute RRI
+    if len(rPeakTimesSeconds) < 2:
+        return None
+    
+    # R-R Intervals (seconds) and validity mask
+    rriS = np.diff(rPeakTimesSeconds)
+    valid = (rriS >= rriMinS) & (rriS <= rriMaxS) # Drop ectopic/outliers
+
+    if not np.any(valid):
+        return None
+    
+    RRI_s_valid = rriS[valid]
+    bpmInstant = 60.0 / RRI_s_valid
+    bpmTimeS = 0.5 * (rPeakTimesSeconds[1:] + rPeakTimesSeconds[:-1])[valid] # mid points
+    bpmMean = float(np.mean(bpmInstant))
+
+    return bpmMean
