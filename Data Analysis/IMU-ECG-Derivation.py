@@ -175,7 +175,7 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
 
 
 
-def PlotIMUSignals(df, respSignal, pitchFiltered, accelPitch, peaks):
+def PlotIMUSignals(df, respSignal, roll, pitch, yaw, accelPitch, peaks):
     fig, ax1 = plt.subplots(figsize=(14, 7))
     # ax1.plot(df["Time (s)"], respSignal, label="Filtered Respiration (mag)", color="blue")
     # ax1.plot(df["Time (s)"].iloc[peaks], respSignal[peaks], "rx", label="Detected Breaths")
@@ -192,14 +192,14 @@ def PlotIMUSignals(df, respSignal, pitchFiltered, accelPitch, peaks):
     ax3 = ax1.twinx()
     ax3.spines["right"].set_position(("axes", 1.1))  # offset right spine
     ax3.spines["right"].set_visible(True)
-    ax3.plot(df["Time (s)"], pitchFiltered, label="Filtered Respiration (mag)", color="green")
+    ax3.plot(df["Time (s)"], pitch, color="green")
     ax3.set_ylabel("Pitch Signal (a.u.)", color="green")
 
     # Accel Pitch overlay
     ax4 = ax1.twinx()
     ax4.spines["right"].set_position(("axes", 1.2))  # offset right spine
     ax4.spines["right"].set_visible(True)
-    ax4.plot(df["Time (s)"], pitchFiltered, label="Filtered Respiration (mag)", color="red")
+    ax4.plot(df["Time (s)"], accelPitch, color="red")
     ax4.set_ylabel("Accel Pitch Signal (a.u.)", color="red")
 
     fig.suptitle("Respiratory Signal Extraction")
@@ -309,7 +309,9 @@ if __name__ == "__main__":
     df_ecg = df[df["heart"].notna()].sort_values("Time (s)").reset_index(drop=True)
 
     # Retrieve pitch for plotting
+    rollRaw = df_imu["roll"].to_numpy(dtype=float)
     pitchRaw = df_imu["pitch"].to_numpy(dtype=float)
+    yawRaw = df_imu["head"].to_numpy(dtype=float)
     _, accelPitch = IMU.AccelTilt(
         df_imu["ax"].to_numpy(dtype=float),
         df_imu["ay"].to_numpy(dtype=float),
@@ -325,7 +327,11 @@ if __name__ == "__main__":
     # --- Resp/IMU path uses the IMU-only frame ---
     respRaw, respLabel = IMU.GetIMUSignal(df_imu, mode=RESP_MODE_DEFAULT)
     IMUfiltered = UF.BandpassFilter(respRaw, imuSamplingFreq, low=0.05, high=0.8, order=4)
+
+    rollFiltered = UF.BandpassFilter(rollRaw, imuSamplingFreq, low=0.05, high=0.8, order=4)
     pitchFiltered = UF.BandpassFilter(pitchRaw, imuSamplingFreq, low=0.05, high=0.8, order=4)
+    yawFiltered = UF.BandpassFilter(yawRaw, imuSamplingFreq, low=0.05, high=0.8, order=4)
+
     accelPitchFiltered = UF.BandpassFilter(accelPitch, imuSamplingFreq, low=0.05, high=0.8, order=4)
 
     # Peak detection on IMUfiltered; index aligns with df_imu after reset_index above
@@ -339,5 +345,5 @@ if __name__ == "__main__":
     print(f"Estimated RR (Freq Domain): {rrFreq:.2f} breaths/min" if rrFreq else "RR (Freq Domain): N/A")
 
     # Plot respiration vs IMU time, overlay Manual from df_imu
-    PlotIMUSignals(df_imu, IMUfiltered, pitchFiltered, accelPitchFiltered, peaks)
+    PlotIMUSignals(df_imu, IMUfiltered, rollFiltered, pitchFiltered, yawFiltered, accelPitchFiltered, peaks)
 
