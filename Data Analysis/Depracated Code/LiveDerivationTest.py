@@ -2,6 +2,8 @@ import serial, time, numpy as np
 from collections import deque
 from scipy.signal import butter, filtfilt, find_peaks
 import pyqtgraph as pg
+import IMUDerivedRR as IMU
+
 
 PORT = "COM5"      # e.g. "COM5", "/dev/ttyUSB0", "/dev/cu.usbmodemXYZ"
 BAUD = 115200
