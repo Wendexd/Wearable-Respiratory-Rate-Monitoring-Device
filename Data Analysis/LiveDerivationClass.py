@@ -11,8 +11,8 @@ class LiveDerivation:
 
     def __init__(self, fsIMU, fsECG, slidingWindow=30, hopInterval=1):
         self.slidingWindow = slidingWindow
-        self.fsIMU = 50
-        self.fsECG = 500
+        self.fsIMU = fsIMU
+        self.fsECG = fsECG
         self.sampleWindowIMU = int(round(slidingWindow * fsIMU))
         self.hopNIMU = int(round(hopInterval * fsIMU))
         self.hopNECG = int(round(hopInterval * fsECG))

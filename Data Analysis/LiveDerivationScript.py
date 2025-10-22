@@ -5,6 +5,18 @@ import LiveDerivationClass as LDC
 import UtilityFunctions as UF
 import IMUDerivedRR as IMU
 import keyboard
+import matplotlib.pyplot as plt
+from collections import deque
+import threading
+import time
+
+# Shared buffers for plotting
+times = deque(maxlen=100) # store latest 100 windows (100 seconds)
+zVals = deque(maxlen=100)
+pitchVals = deque(maxlen=100)
+accelPitchVals = deque(maxlen=100)
+manualVals = deque(maxlen=100)
+plot_lock = threading.Lock()
 
 def ParseESP32Line(line):
 
@@ -63,7 +75,44 @@ def ParseESP32Line(line):
         "ecg": ecg
     }
 
+def PlotThread():
+    """ Thread function to handle live plotting """
+    plt.ion()
+    fig, ax = plt.subplots(figsize=(19, 11))
+    ax.set_title("Live Respiratory Rate Estimates")
+    ax.set_xlabel("Time (s)")
+    ax.set_ylabel("Respiratory Rate (brpm)")
     
+    lineZ, = ax.plot([], [], label="Z-axis RR", color='blue')
+    linePitch, = ax.plot([], [], label="Pitch RR", color='orange')
+    lineAccelPitch, = ax.plot([], [], label="Accel Pitch RR", color='green')
+    lineManual, = ax.plot([], [], label="Manual BRPM", color='red')
+    ax.legend()
+
+    fig.canvas.draw()
+    plt.show(block=False)
+
+    while True:
+        time.sleep(0.5)
+        with plot_lock:
+            if len(times) == 0:
+                continue
+
+            # Update plots
+            lineZ.set_data(times, zVals)
+            linePitch.set_data(times, pitchVals)
+            lineAccelPitch.set_data(times, accelPitchVals)
+            lineManual.set_data(times, manualVals)
+
+            ax.relim()
+            ax.autoscale_view()
+        
+        fig.canvas.draw_idle()
+        plt.pause(0.001) # Allow GUI events to process
+
+# Start plotrting thread before entering serial loop
+plotter = threading.Thread(target=PlotThread, daemon=True)
+plotter.start()
 
 def RunLiveRR(port, baudrate=115200, fsIMU=50, fsECG=500, window=30, hop=1):
     """
@@ -105,11 +154,22 @@ def RunLiveRR(port, baudrate=115200, fsIMU=50, fsECG=500, window=30, hop=1):
                     def fmt(x):
                         return f"{x:.2f}" if isfinite(x) and x != 0 else "N/A"
                     print(f"RR Estimates (brpm) - Z: {fmt(z)}, Pitch: {fmt(pitch)}, AccelPitch: {fmt(accelPitch)}, Manual: {fmt(manualBrpm)}")
+
+                    # Update data buffers
+                    tNow = (data["timestamp"] - t0) / 1e6 - window if t0 else 0 # minus the window to start the graph at 0
+                    with plot_lock:
+                        times.append(tNow)
+                        zVals.append(z)
+                        pitchVals.append(pitch)
+                        accelPitchVals.append(accelPitch)
+                        manualVals.append(manualBrpm if manualBrpm is not None else 0)
     except KeyboardInterrupt:
         print("\nStopping")
 
     finally:
         ser.close()
+        plt.ioff()
+        plt.show()  
 
 
 if __name__ == "__main__":
