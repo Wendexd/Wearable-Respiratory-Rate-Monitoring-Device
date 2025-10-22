@@ -1,6 +1,8 @@
 from scipy.signal import butter, filtfilt, find_peaks, welch
 import numpy as np
 
+RESP_LOW_BAND = 0.05
+RESP_HIGH_BAND = 0.8
 
 
 def BandpassFilter(signal, samplingFreq, low=0.05, high=0.8, order=4):
@@ -12,13 +14,16 @@ def ComputeMagnitude(ax, ay, az):
     return np.sqrt(ax**2 + ay**2 + az**2)
 
 def FilterRisingEges(riseTimes, maxBrpm = 30):
-    
+
     mindt = 60.0 / maxBrpm  # Minimum time between breaths in seconds
+    rt = np.asarray(riseTimes, dtype=float)
+    if rt.size == 0:
+        return rt
     keep = [0]
-    for t in range(1, len(riseTimes)):
-        if (riseTimes[t] - riseTimes[keep[-1]]) >= mindt:
+    for t in range(1, rt.size):
+        if (rt[t] - rt[keep[-1]]) >= mindt:
             keep.append(t)
-    return riseTimes[keep]
+    return rt[keep]
 
 def MOBrpm(manualSignal, timeSeconds, minBrpm=30):
     """ Calculate the breathing rate from manual observations."""
@@ -33,13 +38,16 @@ def MOBrpm(manualSignal, timeSeconds, minBrpm=30):
     dm = np.diff(m, prepend=m[0])
     riseIdx = np.where(dm == 1)[0]
 
+    # Need at least two rising edges to define cycles
+    if riseIdx.size < 2:
+        return 0
+    
     # Filter out rising edges which occured within the maximum brpm rate
     riseT = t[riseIdx]
     riseT = FilterRisingEges(riseT)
 
-    # Need at least two rising edges to define cycles
-    if riseIdx.size < 2:
-        return None
+    if riseT.size < 2:
+        return 0
 
     breath_count = riseT.size - 1
     duration_s = riseT[-1] - riseT[0]
