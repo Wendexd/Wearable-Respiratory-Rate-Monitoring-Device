@@ -79,8 +79,27 @@ def DeriveEDRFromRPeaks(ecgSignal, timeSeconds, samplingFreq, respLowFreq=0.05, 
     
     return edrFiltered
 
+def QrsBandpassAM(ecg, fs, low=0.5, high=25, order=4):
+    return UF.BandpassFilter(ecg, fs, low, high, order)
+
 def QrsBandpass(ecg, fs, low=0.5, high=40.0, order=4):
     return UF.BandpassFilter(ecg, fs, low, high, order)
+
+def DetectRPeaksAM(ecgQrs, fs):
+    # robust scale for prominence
+    mad = np.median(np.abs(ecgQrs - np.median(ecgQrs)))
+    prom = 3.0 * mad if mad > 0 else 0.5 * np.std(ecgQrs)
+
+    min_distance = int(0.35 * fs)             # 350 ms refractory
+    width_bounds = (int(0.02*fs), int(0.12*fs))  # 20–120 ms
+
+    peaks, props = find_peaks(
+        ecgQrs,
+        distance=min_distance,
+        prominence=prom,
+        width=width_bounds
+    )
+    return peaks
 
 def DetectRPeaks(ecgFiltered, fs):
     distance = int(fs * 0.25)  # min 250ms between beats
@@ -198,6 +217,152 @@ def EdrBaselineWander(ecg, timeS, fs, rIndices=None, respLow=0.05, respHigh=0.7,
         order=bpOrder
     )
     return edrBw, rIndices
+
+def CalcAM(ecg, timeS, fs, onsetSearch=0.1, outputTime=None, uniformFs=5.0, useHighpass=False):
+
+    # Detect R peaks for timing (measures amplitudes on raw ecg)
+    ecgQRS = QrsBandpassAM(ecg, fs)
+    rIndices = DetectRPeaksAM(ecgQRS, fs)
+    if rIndices is None or len(rIndices) < 2:
+        return None, None, rIndices
+    
+    # For each R, find local minimum in R - onsetSearch seconds before R peak (onset)
+    win = max(1, int(round(onsetSearch * fs)))
+    onsetIndices = []
+    rIdxKept = []
+    for ri in np.asarray(rIndices, dtype=int):
+        i0 = max(0, ri - win)
+        i1 = ri
+        if i1 <= i0:
+            continue
+        onsetIdx = i0 + int(np.argmin(ecg[i0:i1+1]))
+        if onsetIdx >= ri:
+            continue
+        onsetIndices.append(onsetIdx)
+        rIdxKept.append(ri)
+
+    if len(rIdxKept) < 2:
+        return None, None, rIdxKept
+    
+    rIndices = np.asarray(rIdxKept, dtype=int)
+    onsetIndices = np.asarray(onsetIndices, dtype=int)
+
+    # Beat wise AM values and times
+    amValues = ecg[rIndices] - ecg[onsetIndices]
+    tBeats = 0.5 * (timeS[rIndices] + timeS[onsetIndices])
+
+    # Normalise by mean (RRest style: dimensionless, arounds 1.0)
+    m = np.nanmean(amValues)
+    if not np.isfinite(m) or m == 0:
+        return None, None, rIndices
+    amValues = amValues / m
+
+    # Resample to uniform grid
+    if outputTime is None:
+        outputTime = np.arange(float(tBeats[0]), float(tBeats[-1]), 1.0/uniformFs)
+    f = interp1d(tBeats, amValues, kind="linear", fill_value="extrapolate", assume_sorted=True)
+    amSignalUniform = f(outputTime)
+
+    # light filtering
+    fsUniform = 1.0 / np.median(np.diff(outputTime))
+    if useHighpass:
+        amSignal = UF.HighpassFilter(amSignalUniform, fsUniform)
+    else:
+        amSignal = UF.BandpassFilter(amSignalUniform, fsUniform, low=UF.RESP_LOW_BAND, high=UF.RESP_HIGH_BAND, order=4)
+
+    return amSignal, outputTime, rIndices
+
+def BuildWins(uniformTimeS, windowS=30, hopS=8):
+    t0 = float(uniformTimeS[0])
+    t1 = float(uniformTimeS[-1])
+    tStarts = []
+    tEnds = []
+    t = t0
+    while t + windowS <= t1 + 1e-9:
+        tStarts.append(t)
+        tEnds.append(t + windowS)
+        t += hopS
+    return np.asarray(tStarts, dtype=float), np.asarray(tEnds, dtype=float)
+
+
+
+def CountOrigWindows(signal, outputTime, windowS=30, hopS=8, threshFactor=0.2, zeroCentre=True, minSamples=10):
+
+    fsUniform = 1.0 / np.median(np.diff(outputTime))
+
+    # Windows
+    winStarts, winEnds = BuildWins(outputTime, windowS, hopS)
+
+    # run count orig on each window
+    time = np.asarray(outputTime, dtype=float)
+    x = np.asarray(signal, dtype=float)
+    out = dict(t0=[], t1=[], RRBrpm=[], nCycles=[], threshold=[])
+
+    for start, end in zip(winStarts, winEnds):
+        inWindow = (time >= start) & (time < end)
+        if np.count_nonzero(inWindow) >= minSamples:
+            brpm, nCycles, threshold = CountOrig(x[inWindow], time[inWindow], threshFactor=threshFactor, zeroCentre=zeroCentre)
+        else:
+            brpm, nCycles, threshold = np.nan, 0, np.nan
+
+        out["t0"].append(float(start))
+        out["t1"].append(float(end))
+        out["RRBrpm"].append(float(brpm))
+        out["nCycles"].append(int(nCycles))
+        out["threshold"].append(float(threshold))
+
+    # convert lists to numpy arrays
+    for key in out:
+        out[key] = np.asarray(out[key])
+    
+    return out
+
+
+def CountOrig(signal, timeS, threshFactor=0.2, zeroCentre=True, minBreathInterval=2.0, maxBreathInterval=10.0): # min 6 brpm, max 30 brpm
+
+    signal = np.asarray(signal, dtype=float)
+    timeS = np.asarray(timeS, dtype=float)
+    
+    if signal.size < 5:
+        return np.nan, 0, np.nan
+    
+    if zeroCentre:
+        signal = signal - np.mean(signal)
+
+    # Local maxima / minima via derivative sign change,
+    dx = np.diff(signal)
+    peaks = np.where((dx[:-1] > 0) & (dx[1:] < 0))[0] + 1  # local maxima
+    troughs = np.where((dx[:-1] < 0) & (dx[1:] > 0))[0] + 1  # local minima
+    if peaks.size == 0 or troughs.size == 0:
+        return np.nan, 0, np.nan
+    
+    # Count Orig threshold: 0.2 * 75th percentile of peak amplitudes
+    q3 = np.percentile(signal[peaks], 75)
+    threshold = float(threshFactor * q3)
+
+    # relevant extrema
+    relPeaks = peaks[signal[peaks] > threshold]
+    relTroughs = troughs[signal[troughs] < 0]
+
+    # valid cycles: consectuive relevant peaks with exactly one relevant trough between them
+    durations = []
+    for p0, p1 in zip(relPeaks[:-1], relPeaks[1:]):
+        numTroughs = np.sum((relTroughs > p0) & (relTroughs < p1))
+        if numTroughs == 1:
+            dur = timeS[p1] - timeS[p0]
+            if dur >= minBreathInterval and dur <= maxBreathInterval:
+                durations.append(dur)
+
+    if len(durations) == 0:
+        return np.nan, 0, threshold
+    
+    aveBreathDurationS = float(np.mean(durations))
+    if not np.isfinite(aveBreathDurationS) or aveBreathDurationS <= 0:
+        return np.nan, 0, threshold
+    
+    brpm = 60.0 / aveBreathDurationS
+    return brpm, len(durations), threshold
+
 
 def ECGToBPM(ecgSignal, samplingFreq, rriMinS=0.3, rriMaxS=2.0):
     

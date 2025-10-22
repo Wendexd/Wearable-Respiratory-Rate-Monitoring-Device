@@ -10,6 +10,12 @@ def BandpassFilter(signal, samplingFreq, low=0.05, high=0.8, order=4):
     b, a = butter(order, [low / nyq, high / nyq], btype='band')
     return filtfilt(b, a, signal)
 
+def HighpassFilter(signal, samplingFreq, cutoff_hz=4/60.0, order=2): # Cutoff at 4 breaths per minute
+    nyq = 0.5 * samplingFreq
+    b, a = butter(order, cutoff_hz/nyq, btype='highpass')
+    return filtfilt(b, a, signal)
+
+
 def ComputeMagnitude(ax, ay, az):
     return np.sqrt(ax**2 + ay**2 + az**2)
 

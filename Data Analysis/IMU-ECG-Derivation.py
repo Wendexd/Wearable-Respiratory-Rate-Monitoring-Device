@@ -88,6 +88,24 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
     nyq = 0.5 * samplingFreq
     highHz = min(bandHigh, nyq * 0.9)  # avoid >Nyquist
     ecgFiltered = UF.BandpassFilter(ecgRaw, samplingFreq, low=bandLow, high=highHz, order=order)
+    # QRSbased band for peak detection
+    ecgQRS = ECG.QrsBandpass(ecgRaw, samplingFreq)
+    # R peak detection
+    rPeaks = ECG.DetectRPeaks(ecgQRS, samplingFreq)
+
+    plt.plot(timeSeconds, ecgFiltered, linewidth=1.0, label="ECG (0.5–40 Hz)")
+    plt.plot(timeSeconds, ecgQRS,     linewidth=1.0, label="ECG (QRS 5–25 Hz)")
+
+    if len(rPeaks) > 0:
+        plt.plot(timeSeconds[rPeaks], ecgQRS[rPeaks], "rx", ms=4, label="R-peaks (QRS band)")
+
+    plt.xlabel("Time (s)")
+    plt.ylabel("ECG (a.u.)")
+    plt.title(f"ECG: display vs QRS-band (fs={samplingFreq:.1f} Hz)")
+    plt.legend(loc="upper right")
+    plt.tight_layout()
+    plt.show()
+
     # EDRFiltered = ECG.DeriveEDRFromRPeaks(
     # ecgSignal=ecgRaw,
     # timeSeconds=timeSeconds,
@@ -98,11 +116,36 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
     # )
 
     # --------------------------------- AM --------------------------------
-    # QRSbased band for peak detection
-    ecgQRS = ECG.QrsBandpass(ecgRaw, samplingFreq)
+    amSignal, amTime, rIndices = ECG.CalcAM(
+        ecg=ecgRaw,
+        timeS=timeSeconds,
+        fs=samplingFreq,
+        onsetSearch=0.1,
+        outputTime=None,
+        uniformFs=5.0,
+        useHighpass=False
+    )
 
-    # R peak detection
-    rPeaks = ECG.DetectRPeaks(ecgQRS, samplingFreq)
+
+    rrAM = ECG.CountOrigWindows(signal=amSignal, outputTime=amTime, windowS=30, hopS=8, threshFactor=0.2, zeroCentre=True)
+    if np.any(np.isfinite(rrAM["RRBrpm"])):
+        mean_am_rr = np.nanmean(rrAM["RRBrpm"])
+        print(f"[AM·CtO] Mean RR = {mean_am_rr:.2f} brpm over {len(rrAM['RRBrpm'])} windows")
+    else:
+        print("[AM·CtO] No valid CtO estimates in the current windows.")
+
+    plt.figure(figsize=(14,4))
+    plt.plot(amTime, amSignal, linewidth=1.2)
+    plt.title("AM-derived respiratory surrogate (amSignal)")
+    plt.xlabel("Time (s)")
+    plt.ylabel("Amplitude (a.u.)")
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+    
+
+
+
     if len(rPeaks) < 2:
         print("[AM] Not enough peaks detected to build EDR.")
         # fallback: plot what we have and return
