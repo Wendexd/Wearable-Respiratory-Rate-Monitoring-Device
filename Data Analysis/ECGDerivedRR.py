@@ -272,7 +272,7 @@ def CalcAM(ecg, timeS, fs, onsetSearch=0.1, outputTime=None, uniformFs=5.0, useH
 
     return amSignal, outputTime, rIndices
 
-def BuildWins(uniformTimeS, windowS=30, hopS=8):
+def BuildWins(uniformTimeS, windowS=30, hopS=8, allowPartial=True):
     t0 = float(uniformTimeS[0])
     t1 = float(uniformTimeS[-1])
     tStarts = []
@@ -282,6 +282,11 @@ def BuildWins(uniformTimeS, windowS=30, hopS=8):
         tStarts.append(t)
         tEnds.append(t + windowS)
         t += hopS
+
+    if allowPartial and not tStarts and (t1 - t0) > 0:
+        # one partial window covering what you have
+        tStarts.append(t0)
+        tEnds.append(t1)
     return np.asarray(tStarts, dtype=float), np.asarray(tEnds, dtype=float)
 
 
@@ -292,6 +297,7 @@ def CountOrigWindows(signal, outputTime, windowS=30, hopS=8, threshFactor=0.2, z
 
     # Windows
     winStarts, winEnds = BuildWins(outputTime, windowS, hopS)
+    print(f"WindowStart{winStarts}, WindowEnd{winEnds}")
 
     # run count orig on each window
     time = np.asarray(outputTime, dtype=float)

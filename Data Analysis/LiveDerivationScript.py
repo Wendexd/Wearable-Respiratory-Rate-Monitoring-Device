@@ -12,9 +12,11 @@ import time
 
 # Shared buffers for plotting
 times = deque(maxlen=100) # store latest 100 windows (100 seconds)
+timesEDR = deque(maxlen=100)
 zVals = deque(maxlen=100)
 pitchVals = deque(maxlen=100)
 accelPitchVals = deque(maxlen=100)
+edrVals = deque(maxlen=100)
 manualVals = deque(maxlen=100)
 plot_lock = threading.Lock()
 
@@ -86,6 +88,7 @@ def PlotThread():
     lineZ, = ax.plot([], [], label="Z-axis RR", color='blue')
     linePitch, = ax.plot([], [], label="Pitch RR", color='orange')
     lineAccelPitch, = ax.plot([], [], label="Accel Pitch RR", color='green')
+    lineEDR, = ax.plot([], [], label="EDR RR", color='purple')
     lineManual, = ax.plot([], [], label="Manual BRPM", color='red')
     ax.legend()
 
@@ -102,6 +105,7 @@ def PlotThread():
             lineZ.set_data(times, zVals)
             linePitch.set_data(times, pitchVals)
             lineAccelPitch.set_data(times, accelPitchVals)
+            lineEDR.set_data(timesEDR, edrVals)
             lineManual.set_data(times, manualVals)
 
             ax.relim()
@@ -139,6 +143,7 @@ def RunLiveRR(port, baudrate=115200, fsIMU=50, fsECG=500, window=30, hop=1):
             if t0 is None:
                 t0 = data["timestamp"]
             
+            tNow = (data["timestamp"] - t0) / 1e6 - window if t0 else 0 # minus the window to start the graph at 0
             if data["type"] == "IMU":
                 ax, ay, az = data["ax"], data["ay"], data["az"]
                 devicePitch = data["pitch"]
@@ -156,13 +161,24 @@ def RunLiveRR(port, baudrate=115200, fsIMU=50, fsECG=500, window=30, hop=1):
                     print(f"RR Estimates (brpm) - Z: {fmt(z)}, Pitch: {fmt(pitch)}, AccelPitch: {fmt(accelPitch)}, Manual: {fmt(manualBrpm)}")
 
                     # Update data buffers
-                    tNow = (data["timestamp"] - t0) / 1e6 - window if t0 else 0 # minus the window to start the graph at 0
                     with plot_lock:
                         times.append(tNow)
                         zVals.append(z)
                         pitchVals.append(pitch)
                         accelPitchVals.append(accelPitch)
                         manualVals.append(manualBrpm if manualBrpm is not None else 0)
+            if data["type"] == "ECG":
+                ecg = data["ecg"]
+                if ecg is not None:
+                    liveDeriv.UpdateECG(ecg)
+                    edr = liveDeriv.ComputeEDR(fsUniform=5.0)
+                    if edr is not None and isfinite(edr["RR"]):
+                        print(f"EDR Estimate (brpm): {edr['RR']:.2f}")
+                        # Update edr buffer
+                        with plot_lock:
+                            timesEDR.append(tNow)
+                            edrVals.append(edr['RR'])
+
     except KeyboardInterrupt:
         print("\nStopping")
 
