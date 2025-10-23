@@ -125,14 +125,26 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
         uniformFs=5.0,
         useHighpass=False
     )
-
-
     rrAM = ECG.CountOrigWindows(signal=amSignal, outputTime=amTime, windowS=30, hopS=8, threshFactor=0.2, zeroCentre=True)
     if np.any(np.isfinite(rrAM["RRBrpm"])):
         mean_am_rr = np.nanmean(rrAM["RRBrpm"])
         print(f"[AM·CtO] Mean RR = {mean_am_rr:.2f} brpm over {len(rrAM['RRBrpm'])} windows")
     else:
         print("[AM·CtO] No valid CtO estimates in the current windows.")
+
+    # ------------------------- BW CtO RR Estimation -------------------------
+    bwSignal, bwTime, bwRIndices = ECG.CalcBW(
+        ecg=ecgRaw,
+        timeS=timeSeconds,
+        fs=samplingFreq,
+    )
+    rrBW = ECG.CountOrigWindows(signal=bwSignal, outputTime=bwTime, windowS=30, hopS=8, threshFactor=0.2, zeroCentre=True)
+
+    if np.any(np.isfinite(rrBW["RRBrpm"])):
+        mean_bw_rr = np.nanmean(rrBW["RRBrpm"])
+        print(f"[BW·CtO] Mean RR = {mean_bw_rr:.2f} brpm over {len(rrBW['RRBrpm'])} windows")
+    else:
+        print("[BW·CtO] No valid CtO estimates in the current windows.")
 
     plt.figure(figsize=(14,4))
     plt.plot(amTime, amSignal, linewidth=1.2)

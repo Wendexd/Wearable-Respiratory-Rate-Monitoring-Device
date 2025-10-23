@@ -218,9 +218,9 @@ def EdrBaselineWander(ecg, timeS, fs, rIndices=None, respLow=0.05, respHigh=0.7,
     )
     return edrBw, rIndices
 
-def CalcAM(ecg, timeS, fs, onsetSearch=0.1, outputTime=None, uniformFs=5.0, useHighpass=False):
-
-    # Detect R peaks for timing (measures amplitudes on raw ecg)
+def FindOnsetsBeforeR(ecg, fs, onsetSearch=0.1):
+    """ For each R-peak, find the local minimum in the preceding onsetSearch seconds."""
+        # Detect R peaks for timing (measures amplitudes on raw ecg)
     ecgQRS = QrsBandpassAM(ecg, fs)
     rIndices = DetectRPeaksAM(ecgQRS, fs)
     if rIndices is None or len(rIndices) < 2:
@@ -240,6 +240,12 @@ def CalcAM(ecg, timeS, fs, onsetSearch=0.1, outputTime=None, uniformFs=5.0, useH
             continue
         onsetIndices.append(onsetIdx)
         rIdxKept.append(ri)
+
+    return np.asarray(onsetIndices, dtype=int), np.asarray(rIdxKept, dtype=int)
+
+def CalcAM(ecg, timeS, fs, onsetSearch=0.1, outputTime=None, uniformFs=5.0, useHighpass=False):
+
+    onsetIndices, rIdxKept = FindOnsetsBeforeR(ecg, fs, onsetSearch=0.1)
 
     if len(rIdxKept) < 2:
         return None, None, rIdxKept
@@ -271,6 +277,42 @@ def CalcAM(ecg, timeS, fs, onsetSearch=0.1, outputTime=None, uniformFs=5.0, useH
         amSignal = UF.BandpassFilter(amSignalUniform, fsUniform, low=UF.RESP_LOW_BAND, high=UF.RESP_HIGH_BAND, order=4)
 
     return amSignal, outputTime, rIndices
+
+def CalcBW(ecg, timeS, fs, onsetSearch=0.1, outputTime=None, uniformF=5.0):
+
+    onsetIndices, rIdxKept = FindOnsetsBeforeR(ecg, fs, onsetSearch=0.1)
+
+    if len(rIdxKept) < 2:
+        return None, None, rIdxKept
+    
+    # Beat wise BW values and times
+    bwBeatValues = 0.5 * (ecg[onsetIndices] + ecg[rIdxKept])
+    bwBeatTimes = 0.5 * (timeS[onsetIndices] + timeS[rIdxKept])
+
+    # Normalise by mean AM (RRest style: dimensionless, arounds 1.0)
+    amValues = ecg[rIdxKept] - ecg[onsetIndices]
+    m = np.nanmean(amValues)
+    if not np.isfinite(m) or m == 0:
+        return None, None, rIdxKept
+    bwBeatValues = bwBeatValues / m
+
+    # Resample to uniform grid
+    if outputTime is None:
+        t0 = float(bwBeatTimes[0])
+        t1 = float(bwBeatTimes[-1])
+        if t1 <= t0:
+            return None, None, rIdxKept
+        outputTime = np.arange(t0, t1, 1.0/uniformF)
+
+    f = interp1d(bwBeatTimes, bwBeatValues, kind="linear", fill_value="extrapolate", assume_sorted=True)
+    bwSignalUniform = f(outputTime)
+
+    #light filtering
+    fsUniform = 1.0 / np.median(np.diff(outputTime))
+    bwSignal = UF.BandpassFilter(bwSignalUniform, fsUniform, low=UF.RESP_LOW_BAND, high=UF.RESP_HIGH_BAND, order=4)
+
+    return bwSignal, outputTime, rIdxKept
+
 
 def BuildWins(uniformTimeS, windowS=30, hopS=8, allowPartial=True):
     t0 = float(uniformTimeS[0])

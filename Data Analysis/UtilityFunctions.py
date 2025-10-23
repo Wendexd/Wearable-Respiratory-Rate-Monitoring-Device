@@ -1,8 +1,8 @@
 from scipy.signal import butter, filtfilt, find_peaks, welch
 import numpy as np
 
-RESP_LOW_BAND = 0.05
-RESP_HIGH_BAND = 0.8
+RESP_LOW_BAND = 0.05 # Breathing rate lower bound in Hz (3 brpm)
+RESP_HIGH_BAND = 0.5 # Breathing rate upper bound in Hz (30 brpm)
 
 
 def BandpassFilter(signal, samplingFreq, low=0.05, high=0.8, order=4):
