@@ -147,16 +147,18 @@ def PlotECG(df, samplingFreq, bandLow, bandHigh, order, displayRaw=True):
         print("[BW·CtO] No valid CtO estimates in the current windows.")
 
     plt.figure(figsize=(14,4))
-    plt.plot(amTime, amSignal, linewidth=1.2)
-    plt.title("AM-derived respiratory surrogate (amSignal)")
-    plt.xlabel("Time (s)")
-    plt.ylabel("Amplitude (a.u.)")
-    plt.grid(alpha=0.3)
+    ax1 = plt.gca()
+    ax1.plot(amTime, amSignal, linewidth=1.2, label="AM Signal", color='orange')
+    ax1.plot(bwTime, bwSignal, linewidth=1.2, label="BW Signal", color='blue')
+    ax1.set_title("AM and BW Derived Respiratory Surrogates from ECG")
+    ax1.set_xlabel("Time (s)")
+    ax1.set_ylabel("Amplitude (a.u.)")
+    ax2 = ax1.twinx()
+    ax2.set_ylabel("Baseline Wander (a.u.)")
+    ax1.grid(alpha=0.3)
+    ax1.legend(loc="upper right")
     plt.tight_layout()
     plt.show()
-    
-
-
 
     if len(rPeaks) < 2:
         print("[AM] Not enough peaks detected to build EDR.")
